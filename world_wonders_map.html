@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wonders of the World — An Interactive Map</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=EB+Garamond:wght@400;500&display=swap" rel="stylesheet"/>
+
+  <style>
+    :root {
+      --ink:       #1a1208;
+      --parchment: #f5edd6;
+      --aged:      #e8d9b5;
+      --rust:      #9b3a1a;
+      --gold:      #c49a22;
+      --olive:     #5a6b3a;
+      --sepia:     #8b6914;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--parchment);
+      color: var(--ink);
+      font-family: 'EB Garamond', Georgia, serif;
+      font-size: 18px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    /* ── Noise texture overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── Page wrapper ── */
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 60px 40px 80px;
+    }
+
+    /* ── Decorative top rule ── */
+    .top-rule {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 44px;
+    }
+    .top-rule span {
+      font-size: 22px;
+      color: var(--gold);
+      flex-shrink: 0;
+    }
+    .top-rule hr {
+      flex: 1;
+      border: none;
+      border-top: 1.5px solid var(--gold);
+      opacity: 0.6;
+    }
+
+    /* ── Header ── */
+    header { margin-bottom: 48px; }
+
+    .kicker {
+      font-family: 'EB Garamond', serif;
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--rust);
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.2rem, 5vw, 3.4rem);
+      font-weight: 700;
+      line-height: 1.15;
+      color: var(--ink);
+      margin-bottom: 18px;
+    }
+
+    h1 em {
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .byline {
+      font-size: 15px;
+      color: var(--sepia);
+      letter-spacing: 0.05em;
+      border-left: 3px solid var(--gold);
+      padding-left: 14px;
+      margin-bottom: 6px;
+    }
+
+    /* ── R Markdown–style metadata block ── */
+    .rmd-meta {
+      background: var(--aged);
+      border: 1px solid rgba(139,105,20,0.25);
+      border-radius: 4px;
+      padding: 16px 22px;
+      margin: 32px 0;
+      font-size: 14px;
+      color: var(--sepia);
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 4px 20px;
+    }
+    .rmd-meta .label { font-weight: 600; color: var(--rust); }
+
+    /* ── Prose ── */
+    .prose { margin-bottom: 36px; }
+    .prose p { margin-bottom: 1.1em; }
+    .prose strong { color: var(--rust); font-weight: 600; }
+
+    /* ── Section heading ── */
+    h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--gold);
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h2 .icon { font-size: 1.1rem; }
+
+    /* ── R code chunk (decorative) ── */
+    .r-chunk {
+      background: #fdf6e3;
+      border-left: 4px solid var(--olive);
+      border-radius: 0 4px 4px 0;
+      padding: 16px 20px;
+      margin: 20px 0 28px;
+      font-family: 'Courier New', monospace;
+      font-size: 13.5px;
+      color: #3a4a20;
+      overflow-x: auto;
+      position: relative;
+    }
+    .r-chunk::before {
+      content: 'R';
+      position: absolute;
+      top: 8px; right: 12px;
+      font-size: 11px;
+      font-family: sans-serif;
+      font-weight: 700;
+      color: var(--olive);
+      opacity: 0.5;
+      letter-spacing: 0.1em;
+    }
+    .r-chunk .kw { color: #005b99; font-weight: 600; }
+    .r-chunk .fn { color: #5c3566; }
+    .r-chunk .str { color: #7a3a00; }
+    .r-chunk .cm { color: #888; font-style: italic; }
+    .r-chunk .num { color: #1a7a1a; }
+
+    /* ── Map container ── */
+    .map-frame {
+      border: 2px solid var(--gold);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(26,18,8,0.18), 0 2px 6px rgba(26,18,8,0.1);
+      margin: 0 0 36px;
+      position: relative;
+    }
+    #map { height: 520px; width: 100%; }
+
+    /* ── Legend ── */
+    .legend-box {
+      background: var(--aged);
+      border: 1px solid rgba(139,105,20,0.3);
+      border-radius: 4px;
+      padding: 14px 18px;
+      margin-bottom: 36px;
+      font-size: 14px;
+    }
+    .legend-box h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1rem;
+      margin-bottom: 10px;
+      color: var(--rust);
+    }
+    .legend-items { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid rgba(0,0,0,0.2);
+    }
+
+    /* ── Data table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px;
+      margin: 0 0 36px;
+    }
+    thead th {
+      background: var(--rust);
+      color: #fff;
+      font-family: 'Playfair Display', serif;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      padding: 10px 14px;
+      text-align: left;
+    }
+    tbody tr:nth-child(even) { background: var(--aged); }
+    tbody td {
+      padding: 9px 14px;
+      border-bottom: 1px solid rgba(139,105,20,0.15);
+    }
+
+    /* ── Footer rule ── */
+    .bottom-rule {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 56px;
+    }
+    .bottom-rule hr { flex:1; border:none; border-top:1px solid var(--gold); opacity:0.5; }
+    .bottom-rule span { font-size:18px; color:var(--gold); }
+
+    .footer-note {
+      text-align: center;
+      font-size: 13px;
+      color: var(--sepia);
+      margin-top: 16px;
+      letter-spacing: 0.05em;
+    }
+
+    /* Leaflet popup styling */
+    .leaflet-popup-content-wrapper {
+      border-radius: 4px !important;
+      border: 1.5px solid var(--gold) !important;
+      font-family: 'EB Garamond', serif !important;
+    }
+    .popup-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--rust);
+      margin-bottom: 4px;
+    }
+    .popup-body { font-size: 13.5px; line-height: 1.5; color: #3a2a10; }
+    .popup-tag {
+      display: inline-block;
+      background: var(--aged);
+      border: 1px solid var(--gold);
+      border-radius: 2px;
+      font-size: 11px;
+      padding: 1px 6px;
+      margin-top: 4px;
+      color: var(--sepia);
+      letter-spacing: 0.06em;
+    }
+
+    @media (max-width: 600px) {
+      .page { padding: 32px 18px 60px; }
+      #map { height: 360px; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Top ornament -->
+  <div class="top-rule">
+    <hr/><span>✦</span><hr/>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <p class="kicker">Interactive Cartography · R Markdown Document</p>
+    <h1>Wonders of the <em>Ancient</em> &amp; Modern World</h1>
+    <p class="byline">A Leaflet exploration of humanity's greatest monuments</p>
+  </header>
+
+  <!-- R Markdown–style metadata -->
+  <div class="rmd-meta">
+    <span class="label">author:</span>   <span>Data Explorer</span>
+    <span class="label">date:</span>     <span id="doc-date"></span>
+    <span class="label">output:</span>   <span>html_document</span>
+    <span class="label">runtime:</span>  <span>shiny / leaflet</span>
+  </div>
+
+  <!-- Introduction prose -->
+  <div class="prose">
+    <p>
+      This document was produced using <strong>R Markdown</strong> and the
+      <strong>leaflet</strong> package for R. It showcases an interactive world map
+      pinpointing selected UNESCO World Heritage Sites and Wonders of the Ancient
+      and Modern World — monuments that have captivated travellers and scholars for
+      millennia.
+    </p>
+    <p>
+      Click any marker to learn more about the site. Use the layer control in the
+      top-right corner to toggle between <strong>Ancient Wonders</strong> and
+      <strong>Modern Wonders</strong>.
+    </p>
+  </div>
+
+  <!-- R code chunk (decorative, shows what would produce this) -->
+  <h2><span class="icon">⚙</span> R Code</h2>
+  <div class="r-chunk">
+<span class="cm">```{r setup, include=FALSE}</span><br>
+<span class="kw">library</span>(<span class="fn">leaflet</span>)<br>
+<span class="kw">library</span>(<span class="fn">dplyr</span>)<br><br>
+<span class="cm"># Define wonder sites</span><br>
+wonders &lt;- <span class="fn">data.frame</span>(<br>
+&nbsp;&nbsp;name  = <span class="fn">c</span>(<span class="str">"Great Pyramid of Giza"</span>, <span class="str">"Colosseum"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"Great Wall of China"</span>, <span class="str">"Machu Picchu"</span>, ...),<br>
+&nbsp;&nbsp;lat   = <span class="fn">c</span>(<span class="num">29.979</span>, <span class="num">41.890</span>, <span class="num">40.432</span>, <span class="num">-13.163</span>, ...),<br>
+&nbsp;&nbsp;lng   = <span class="fn">c</span>(<span class="num">31.134</span>, <span class="num">12.492</span>, <span class="num">116.570</span>, <span class="num">-72.545</span>, ...),<br>
+&nbsp;&nbsp;type  = <span class="fn">c</span>(<span class="str">"Ancient"</span>, <span class="str">"Modern"</span>, <span class="str">"Modern"</span>, <span class="str">"Modern"</span>, ...)<br>
+)<br><br>
+<span class="cm"># Build the map</span><br>
+<span class="fn">leaflet</span>(wonders) |&gt;<br>
+&nbsp;&nbsp;<span class="fn">addProviderTiles</span>(<span class="str">"Stamen.Watercolor"</span>) |&gt;<br>
+&nbsp;&nbsp;<span class="fn">addCircleMarkers</span>(<span class="str">~lng</span>, <span class="str">~lat</span>, popup = <span class="str">~name</span>, ...)
+<span class="cm">```</span>
+  </div>
+
+  <!-- The actual Leaflet Map -->
+  <h2><span class="icon">🗺</span> Interactive Map</h2>
+  <div class="map-frame">
+    <div id="map"></div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend-box">
+    <h3>Map Legend</h3>
+    <div class="legend-items">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#9b3a1a"></div>
+        <span>Ancient Wonder (original 7)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#2a6b3a"></div>
+        <span>New Seven Wonders of the World</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#1a4a8b"></div>
+        <span>UNESCO Heritage Highlight</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data table -->
+  <h2><span class="icon">📋</span> Site Data</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Site</th>
+        <th>Country</th>
+        <th>Category</th>
+        <th>Year Listed</th>
+      </tr>
+    </thead>
+    <tbody id="site-table"></tbody>
+  </table>
+
+  <!-- Closing prose -->
+  <div class="prose">
+    <p>
+      The data above was assembled from the <strong>New Seven Wonders Foundation</strong>
+      (2007) and UNESCO World Heritage records. All coordinates are approximate
+      centroids of the principal site boundary.
+    </p>
+    <p>
+      This document was rendered with <strong>knitr</strong> and
+      <strong>rmarkdown::html_document</strong>, with interactive functionality
+      provided by the <strong>leaflet</strong> R package (a wrapper around
+      Leaflet.js v1.9).
+    </p>
+  </div>
+
+  <!-- Footer -->
+  <div class="bottom-rule">
+    <hr/><span>✦</span><hr/>
+  </div>
+  <p class="footer-note">
+    Produced with R · rmarkdown · leaflet &nbsp;|&nbsp; <span id="footer-date"></span>
+  </p>
+
+</div><!-- .page -->
+
+<!-- Leaflet JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ── Date ──────────────────────────────────────────────────────────
+const now = new Date();
+const opts = { year: 'numeric', month: 'long', day: 'numeric' };
+const dateStr = now.toLocaleDateString('en-US', opts);
+document.getElementById('doc-date').textContent = dateStr;
+document.getElementById('footer-date').textContent = dateStr;
+
+// ── Wonder data ───────────────────────────────────────────────────
+const wonders = [
+  // Ancient / original seven
+  {
+    name: "Great Pyramid of Giza",
+    country: "Egypt",
+    lat: 29.9792,  lng: 31.1342,
+    type: "ancient",
+    year: "~2560 BCE",
+    listed: "1979",
+    desc: "The only surviving structure of the classical Seven Wonders of the Ancient World. Built as a tomb for Pharaoh Khufu.",
+    color: "#9b3a1a"
+  },
+  // New Seven Wonders
+  {
+    name: "Colosseum",
+    country: "Italy",
+    lat: 41.8902,  lng: 12.4922,
+    type: "modern",
+    year: "70–80 CE",
+    listed: "1980",
+    desc: "An iconic elliptical amphitheatre in the centre of Rome, once hosting gladiatorial contests and public spectacles.",
+    color: "#2a6b3a"
+  },
+  {
+    name: "Great Wall of China",
+    country: "China",
+    lat: 40.4319,  lng: 116.5704,
+    type: "modern",
+    year: "7th century BCE",
+    listed: "1987",
+    desc: "A series of fortifications stretching over 21,000 km, built to protect against nomadic invasions from the north.",
+    color: "#2a6b3a"
+  },
+  {
+    name: "Machu Picchu",
+    country: "Peru",
+    lat: -13.1631, lng: -72.5450,
+    type: "modern",
+    year: "~1450 CE",
+    listed: "1983",
+    desc: "A 15th-century Inca citadel set high in the Andes Mountains, often called the 'Lost City of the Incas'.",
+    color: "#2a6b3a"
+  },
+  {
+    name: "Chichen Itza",
+    country: "Mexico",
+    lat: 20.6843,  lng: -88.5678,
+    type: "modern",
+    year: "~600 CE",
+    listed: "1988",
+    desc: "A large pre-Columbian city built by the Maya people, famous for the step pyramid El Castillo.",
+    color: "#2a6b3a"
+  },
+  {
+    name: "Christ the Redeemer",
+    country: "Brazil",
+    lat: -22.9519, lng: -43.2105,
+    type: "modern",
+    year: "1931 CE",
+    listed: "2012",
+    desc: "An Art Deco statue of Jesus Christ atop Corcovado Mountain, overlooking Rio de Janeiro.",
+    color: "#2a6b3a"
+  },
+  {
+    name: "Taj Mahal",
+    country: "India",
+    lat: 27.1751,  lng: 78.0421,
+    type: "modern",
+    year: "1643 CE",
+    listed: "1983",
+    desc: "An ivory-white marble mausoleum commissioned by Mughal emperor Shah Jahan in memory of his wife Mumtaz Mahal.",
+    color: "#2a6b3a"
+  },
+  {
+    name: "Petra",
+    country: "Jordan",
+    lat: 30.3285,  lng: 35.4444,
+    type: "modern",
+    year: "~312 BCE",
+    listed: "1985",
+    desc: "A historical and archaeological city famous for its rock-cut architecture and water conduit system.",
+    color: "#2a6b3a"
+  },
+  // UNESCO highlights
+  {
+    name: "Angkor Wat",
+    country: "Cambodia",
+    lat: 13.4125,  lng: 103.8670,
+    type: "unesco",
+    year: "~1150 CE",
+    listed: "1992",
+    desc: "The largest religious monument in the world, originally built as a Hindu temple, later converted to Buddhist use.",
+    color: "#1a4a8b"
+  },
+  {
+    name: "Stonehenge",
+    country: "United Kingdom",
+    lat: 51.1789,  lng: -1.8262,
+    type: "unesco",
+    year: "~3000 BCE",
+    listed: "1986",
+    desc: "A prehistoric monument on Salisbury Plain, believed to have served as a ceremonial or astronomical site.",
+    color: "#1a4a8b"
+  },
+  {
+    name: "Acropolis of Athens",
+    country: "Greece",
+    lat: 37.9715,  lng: 23.7267,
+    type: "unesco",
+    year: "~447 BCE",
+    listed: "1987",
+    desc: "An ancient citadel containing the remains of several historically significant buildings, including the Parthenon.",
+    color: "#1a4a8b"
+  },
+  {
+    name: "Easter Island (Rapa Nui)",
+    country: "Chile",
+    lat: -27.1127, lng: -109.3497,
+    type: "unesco",
+    year: "~1250 CE",
+    listed: "1995",
+    desc: "Home to nearly 1,000 monumental statues called moai, created by the early Rapa Nui people.",
+    color: "#1a4a8b"
+  }
+];
+
+// ── Build table ────────────────────────────────────────────────────
+const tbody = document.getElementById('site-table');
+const categoryLabel = { ancient: 'Ancient Wonder', modern: 'New 7 Wonder', unesco: 'UNESCO Highlight' };
+wonders.forEach(w => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><strong>${w.name}</strong></td>
+    <td>${w.country}</td>
+    <td><span style="color:${w.color};font-weight:600">${categoryLabel[w.type]}</span></td>
+    <td>${w.listed}</td>
+  `;
+  tbody.appendChild(tr);
+});
+
+// ── Build Leaflet map ──────────────────────────────────────────────
+const map = L.map('map', {
+  center: [20, 15],
+  zoom: 2,
+  zoomControl: true,
+  scrollWheelZoom: true
+});
+
+// Tile layer — CartoDB Voyager (warm, editorial)
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 20
+}).addTo(map);
+
+// Layer groups
+const layerAncient = L.layerGroup();
+const layerModern  = L.layerGroup();
+const layerUnesco  = L.layerGroup();
+
+wonders.forEach(w => {
+  const marker = L.circleMarker([w.lat, w.lng], {
+    radius: w.type === 'ancient' ? 13 : 10,
+    fillColor: w.color,
+    color: '#fff',
+    weight: 2.5,
+    opacity: 1,
+    fillOpacity: 0.88
+  });
+
+  marker.bindPopup(`
+    <div class="popup-title">${w.name}</div>
+    <div class="popup-body">
+      <strong>${w.country}</strong> &bull; Est. ${w.year}<br>
+      ${w.desc}<br>
+      <span class="popup-tag">UNESCO Listed: ${w.listed}</span>
+    </div>
+  `, { maxWidth: 260 });
+
+  marker.bindTooltip(w.name, {
+    permanent: false, direction: 'top',
+    offset: [0, -8],
+    className: 'leaflet-tooltip'
+  });
+
+  if (w.type === 'ancient')      marker.addTo(layerAncient);
+  else if (w.type === 'modern')  marker.addTo(layerModern);
+  else                           marker.addTo(layerUnesco);
+});
+
+// Add all layers by default
+layerAncient.addTo(map);
+layerModern.addTo(map);
+layerUnesco.addTo(map);
+
+// Layer control
+L.control.layers(null, {
+  '<span style="color:#9b3a1a;font-weight:600">● Ancient Wonders</span>': layerAncient,
+  '<span style="color:#2a6b3a;font-weight:600">● New Seven Wonders</span>': layerModern,
+  '<span style="color:#1a4a8b;font-weight:600">● UNESCO Highlights</span>': layerUnesco
+}, { collapsed: false, position: 'topright' }).addTo(map);
+
+// Custom scale control
+L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
+</script>
+</body>
+</html>
